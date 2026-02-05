@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Multiview Pro | Ultimate Workspace</title>
+    <style>
+        :root {
+            --bg: #050505;
+            --panel: #161616;
+            --accent: #ff0000;
+            --header-h: 60px;
+        }
+
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            background: var(--bg);
+            color: white;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            overflow: hidden;
+        }
+
+        header {
+            height: var(--header-h);
+            background: #000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 15px;
+            border-bottom: 1px solid #333;
+            z-index: 1000;
+        }
+
+        .nav-group {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+        .nav-group::-webkit-scrollbar { display: none; }
+
+        button {
+            background: #222;
+            color: white;
+            border: 1px solid #444;
+            padding: 8px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            white-space: nowrap;
+            transition: 0.2s;
+        }
+
+        button:hover { background: #333; border-color: var(--accent); }
+        #addBtn { background: var(--accent); border: none; font-weight: bold; }
+
+        #workspace {
+            width: 100vw;
+            height: calc(100vh - var(--header-h));
+            position: relative;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        /* Window Logic */
+        .v-window {
+            position: absolute;
+            background: var(--panel);
+            border: 1px solid #333;
+            min-width: 250px;
+            min-height: 180px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.7);
+            z-index: 10;
+            transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+        }
+
+        .v-window.no-transition { transition: none !important; }
+
+        /* MOBILE STACKING */
+        @media (max-width: 768px) {
+            #workspace {
+                display: flex;
+                flex-direction: column;
+                padding: 10px;
+                box-sizing: border-box;
+            }
+            .v-window {
+                position: relative !important;
+                width: 100% !important;
+                height: 56.25vw !important; /* 16:9 Aspect Ratio */
+                left: 0 !important;
+                top: 0 !important;
+                margin-bottom: 15px;
+                flex-shrink: 0;
+            }
+            .resizer { display: none !important; }
+            .v-header { cursor: default !important; }
+        }
+
+        .v-header {
+            background: #222;
+            height: 35px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 10px;
+            cursor: move;
+            font-size: 11px;
+            color: #aaa;
+        }
+
+        .header-left { display: flex; align-items: center; gap: 8px; }
+        .back-btn { background: #444; border: none; color: white; padding: 2px 6px; border-radius: 3px; display: none; cursor: pointer; }
+        .close-btn { color: #ff5f56; cursor: pointer; border: none; background: none; font-size: 20px; font-weight: bold; }
+
+        .v-content { flex-grow: 1; background: #000; position: relative; }
+        iframe { width: 100%; height: 100%; border: none; }
+
+        /* Search UI */
+        .search-container { display: flex; flex-direction: column; height: 100%; padding: 10px; box-sizing: border-box; }
+        .search-bar { display: flex; gap: 5px; margin-bottom: 10px; }
+        .search-bar input { flex-grow: 1; background: #111; border: 1px solid #444; color: white; padding: 10px; border-radius: 4px; outline: none; }
+        .results-list { flex-grow: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+        .search-item { display: flex; gap: 10px; cursor: pointer; padding: 8px; background: #222; border-radius: 4px; align-items: center; }
+        .search-item img { width: 70px; height: 40px; border-radius: 2px; object-fit: cover; }
+        .search-item div { font-size: 12px; line-height: 1.2; overflow: hidden; }
+
+        /* Resizers */
+        .resizer { position: absolute; background: transparent; z-index: 100; }
+        .resizer.se { bottom: 0; right: 0; width: 15px; height: 15px; cursor: se-resize; }
+        .overlay-active iframe { pointer-events: none; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div style="font-weight: 900; letter-spacing: 1px;">KRAZY <span style="color: var(--accent);">VIEW</span></div>
+    <div class="nav-group">
+        <button onclick="autoLayout()">Auto Grid</button>
+        <button onclick="applyManualGrid(4, 4)">4x4</button>
+        <button onclick="applyManualGrid(8, 8)">8x8</button>
+        <button id="addBtn">+ New Window</button>
+    </div>
+</header>
+
+<div id="workspace"></div>
+
+<script>
+    const YOUTUBE_API_KEY = 'AIzaSyDfuubS8InUZRRZDezphqbhuuZeKGTh7Tk'; 
+    const workspace = document.getElementById('workspace');
+    let topZ = 100;
+    const historyCache = {};
+
+    document.getElementById('addBtn').onclick = () => {
+        const id = Date.now();
+        const win = document.createElement('div');
+        win.className = 'v-window';
+        
+        if (window.innerWidth > 768) {
+            win.style.left = '60px'; win.style.top = '60px';
+            win.style.width = '480px'; win.style.height = '300px';
+        }
+        win.style.zIndex = ++topZ;
+
+        win.innerHTML = `
+            <div class="v-header">
+                <div class="header-left">
+                    <button id="back-${id}" class="back-btn" onclick="goBack('${id}')">← Back</button>
+                    <span id="t-${id}">Search</span>
+                </div>
+                <button class="close-btn" onclick="this.closest('.v-window').remove()">×</button>
+            </div>
+            <div class="v-content" id="c-${id}">
+                <div class="search-container" id="search-ui-${id}">
+                    <div class="search-bar">
+                        <input type="text" id="q-${id}" placeholder="Search or paste Link...">
+                        <button onclick="handleInput('${id}')">Go</button>
+                    </div>
+                    <div id="r-${id}" class="results-list"></div>
+                </div>
+            </div>
+            <div class="resizer se"></div>
+        `;
+
+        win.onmousedown = () => { if(window.innerWidth > 768) win.style.zIndex = ++topZ; };
+        initDrag(win);
+        initResize(win);
+        workspace.appendChild(win);
+    };
+
+    // ALGORITHMIC DYNAMIC GRID
+    function autoLayout() {
+        const windows = document.querySelectorAll('.v-window');
+        const count = windows.length;
+        if (count === 0) return;
+        const cols = Math.ceil(Math.sqrt(count));
+        const rows = Math.ceil(count / cols);
+        applyManualGrid(cols, rows);
+    }
+
+    function applyManualGrid(cols, rows) {
+        const windows = document.querySelectorAll('.v-window');
+        if (window.innerWidth <= 768 || windows.length === 0) return;
+
+        const gap = 12;
+        const workW = workspace.clientWidth - gap;
+        const workH = workspace.clientHeight - gap;
+        const winW = (workW / cols) - gap;
+        const winH = (workH / rows) - gap;
+
+        windows.forEach((win, i) => {
+            if (i < (cols * rows)) {
+                const c = i % cols, r = Math.floor(i / cols);
+                win.style.width = winW + 'px';
+                win.style.height = winH + 'px';
+                win.style.left = (gap + (c * (winW + gap))) + 'px';
+                win.style.top = (gap + (r * (winH + gap))) + 'px';
+            }
+        });
+    }
+
+    async function handleInput(id) {
+        const query = document.getElementById(`q-${id}`).value.trim();
+        const resultsDiv = document.getElementById(`r-${id}`);
+        
+        const yt = query.match(/(?:youtu\.be\/|youtube\.com(?:\/embed\/|\/v\/|\/watch\?v=))([\w\-]{11})/);
+        const tw = query.match(/twitch\.tv\/([a-zA-Z0-9_]+)/);
+
+        if (yt) { loadPlayer(id, 'youtube', yt[1]); return; }
+        if (tw) { loadPlayer(id, 'twitch', tw[1]); return; }
+
+        if (YOUTUBE_API_KEY === 'YOUR_YOUTUBE_API_KEY') return alert("API Key Required for Search");
+
+        resultsDiv.innerHTML = "Searching...";
+        try {
+            const resp = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=6&q=${encodeURIComponent(query)}&type=video&key=${YOUTUBE_API_KEY}`);
+            const data = await resp.json();
+            resultsDiv.innerHTML = "";
+            data.items.forEach(item => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'search-item';
+                itemDiv.onclick = () => loadPlayer(id, 'youtube', item.id.videoId, item.snippet.title);
+                itemDiv.innerHTML = `<img src="${item.snippet.thumbnails.default.url}"><div>${item.snippet.title}</div>`;
+                resultsDiv.appendChild(itemDiv);
+            });
+            historyCache[id] = document.getElementById(`search-ui-${id}`).innerHTML;
+        } catch (e) { resultsDiv.innerHTML = "Error loading results."; }
+    }
+
+    function loadPlayer(id, platform, videoId, customTitle) {
+        const content = document.getElementById(`c-${id}`);
+        const backBtn = document.getElementById(`back-${id}`);
+        const title = document.getElementById(`t-${id}`);
+
+        if (!historyCache[id]) historyCache[id] = content.innerHTML;
+
+        let url = "";
+        if (platform === 'youtube') url = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+        if (platform === 'twitch') {
+            url = `https://player.twitch.tv/?channel=${videoId}&parent=${window.location.hostname || 'localhost'}&autoplay=true`;
+        }
+
+        title.innerText = customTitle ? customTitle.substring(0, 15) + "..." : platform.toUpperCase();
+        content.innerHTML = `<iframe src="${url}" allow="autoplay; fullscreen" allowfullscreen></iframe>`;
+        backBtn.style.display = "block";
+    }
+
+    function goBack(id) {
+        document.getElementById(`c-${id}`).innerHTML = `<div class="search-container" id="search-ui-${id}">${historyCache[id]}</div>`;
+        document.getElementById(`back-${id}`).style.display = "none";
+        document.getElementById(`t-${id}`).innerText = "Search";
+    }
+
+    function initDrag(win) {
+        const h = win.querySelector('.v-header');
+        h.onmousedown = (e) => {
+            if (window.innerWidth <= 768 || e.target.tagName === 'BUTTON') return;
+            win.classList.add('no-transition', 'overlay-active');
+            let ox = e.clientX - win.offsetLeft, oy = e.clientY - win.offsetTop;
+            const m = (me) => { win.style.left = (me.clientX - ox) + 'px'; win.style.top = (me.clientY - oy) + 'px'; };
+            const u = () => { win.classList.remove('no-transition', 'overlay-active'); window.removeEventListener('mousemove', m); };
+            window.addEventListener('mousemove', m); window.addEventListener('mouseup', u);
+        };
+    }
+
+    function initResize(win) {
+        const r = win.querySelector('.resizer.se');
+        r.onmousedown = (e) => {
+            if (window.innerWidth <= 768) return;
+            win.classList.add('no-transition', 'overlay-active');
+            const m = (me) => { win.style.width = (me.clientX - win.offsetLeft) + 'px'; win.style.height = (me.clientY - win.offsetTop) + 'px'; };
+            const u = () => { win.classList.remove('no-transition', 'overlay-active'); window.removeEventListener('mousemove', m); };
+            window.addEventListener('mousemove', m); window.addEventListener('mouseup', u);
+        };
+    }
+</script>
+</body>
+</html>
