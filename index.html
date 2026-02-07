@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Multiview Pro | Master Synchronized Workspace</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root {
+            --bg: #050505;
+            --panel: #161616;
+            --accent: #ff0000;
+            --header-h: 85px;
+        }
+
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            background: var(--bg);
+            color: white;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            overflow: hidden;
+        }
+
+        header {
+            height: var(--header-h);
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 0 15px;
+            border-bottom: 1px solid #333;
+            z-index: 1000;
+        }
+
+        .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+        .nav-group { display: flex; gap: 8px; align-items: center; overflow-x: auto; scrollbar-width: none; }
+        .nav-group::-webkit-scrollbar { display: none; }
+
+        .party-bar { display: flex; gap: 8px; align-items: center; font-size: 11px; margin-top: 5px; }
+
+        button {
+            background: #222; color: white; border: 1px solid #444;
+            padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; white-space: nowrap;
+        }
+
+        button:hover { background: #333; border-color: var(--accent); }
+        #addBtn { background: var(--accent); border: none; font-weight: bold; }
+        
+        input { background: #111; border: 1px solid #444; color: white; padding: 6px; border-radius: 4px; outline: none; }
+
+        #workspace {
+            width: 100vw;
+            height: calc(100vh - var(--header-h));
+            position: relative;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        /* WINDOW LOGIC */
+        .v-window {
+            position: absolute;
+            background: var(--panel);
+            border: 1px solid #333;
+            min-width: 250px;
+            min-height: 180px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.7);
+            z-index: 10;
+            transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+        }
+
+        .v-window.no-transition { transition: none !important; }
+
+        /* MOBILE SPLIT-GRID (2 PER ROW) */
+        @media (max-width: 768px) {
+            #workspace { display: flex; flex-wrap: wrap; padding: 5px; box-sizing: border-box; align-content: flex-start; }
+            .v-window {
+                position: relative !important;
+                width: calc(50% - 10px) !important;
+                height: 150px !important;
+                left: 0 !important; top: 0 !important;
+                margin: 5px; flex-shrink: 0;
+            }
+            .resizer { display: none !important; }
+            .v-header { cursor: default !important; }
+        }
+
+        .v-header { background: #222; height: 32px; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; cursor: move; font-size: 11px; color: #aaa; }
+        .header-left { display: flex; align-items: center; gap: 8px; }
+        .back-btn { background: #444; border: none; color: white; padding: 2px 6px; border-radius: 3px; display: none; cursor: pointer; }
+        .close-btn { color: #ff5f56; cursor: pointer; border: none; background: none; font-size: 18px; font-weight: bold; }
+
+        .v-content { flex-grow: 1; background: #000; position: relative; overflow: hidden; }
+        iframe { width: 100%; height: 100%; border: none; }
+
+        /* Search Interface */
+        .search-container { display: flex; flex-direction: column; height: 100%; padding: 10px; box-sizing: border-box; }
+        .search-bar-inner { display: flex; gap: 5px; margin-bottom: 10px; }
+        .results-list { flex-grow: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+        .search-item { display: flex; gap: 10px; cursor: pointer; padding: 8px; background: #222; border-radius: 4px; align-items: center; }
+        .search-item img { width: 60px; height: 35px; border-radius: 2px; }
+
+        .resizer.se { position: absolute; bottom: 0; right: 0; width: 15px; height: 15px; cursor: se-resize; z-index: 100; }
+        .overlay-active iframe { pointer-events: none; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="header-top">
+        <div style="font-weight: 900; letter-spacing: 1px;">MV <span style="color: var(--accent);">PRO</span></div>
+        <div class="nav-group">
+            <button onclick="autoLayout()">Auto Grid</button>
+            <button onclick="applyManualGrid(4, 4)">4x4</button>
+            <button onclick="applyManualGrid(8, 8)">8x8</button>
+            <button id="addBtn">+ New Window</button>
+        </div>
+    </div>
+    <div class="party-bar">
+        <input type="text" id="roomInput" placeholder="Join Party ID...">
+        <button onclick="joinParty()" style="border-color: #00ff00;">Join Party</button>
+        <span id="partyStatus" style="color:#555">Solo Mode</span>
+    </div>
+</header>
+
+<div id="workspace"></div>
+
+<script>
+    const socket = io(https://multiview-party.onrender.com);
+    const YOUTUBE_API_KEY = 'AIzaSyDfuubS8InUZRRZDezphqbhuuZeKGTh7Tk'; 
+    const workspace = document.getElementById('workspace');
+    let currentRoom = null;
+    let topZ = 100;
+    const historyCache = {};
+
+    function joinParty() {
+        currentRoom = document.getElementById('roomInput').value.trim();
+        if (currentRoom) {
+            socket.emit('join-room', currentRoom);
+            document.getElementById('partyStatus').innerText = `Syncing Room: ${currentRoom}`;
+            document.getElementById('partyStatus').style.color = "#00ff00";
+        }
+    }
+
+    document.getElementById('addBtn').onclick = () => {
+        const id = Date.now();
+        createWindow(id);
+    };
+
+    function createWindow(id) {
+        if (document.getElementById(`win-${id}`)) return;
+        const win = document.createElement('div');
+        win.className = 'v-window';
+        win.id = `win-${id}`;
+        
+        if (window.innerWidth > 768) {
+            win.style.left = '60px'; win.style.top = '60px';
+            win.style.width = '480px'; win.style.height = '320px';
+        }
+        win.style.zIndex = ++topZ;
+
+        win.innerHTML = `
+            <div class="v-header">
+                <div class="header-left">
+                    <button id="back-${id}" class="back-btn" onclick="goBack('${id}')">←</button>
+                    <span id="t-${id}">Search</span>
+                </div>
+                <button class="close-btn" onclick="this.closest('.v-window').remove()">×</button>
+            </div>
+            <div class="v-content" id="c-${id}">
+                <div class="search-container" id="search-ui-${id}">
+                    <div class="search-bar-inner">
+                        <input type="text" id="q-${id}" style="flex-grow:1" placeholder="Search YouTube...">
+                        <button onclick="handleSearch('${id}')">Go</button>
+                    </div>
+                    <div id="r-${id}" class="results-list"></div>
+                </div>
+            </div>
+            <div class="resizer se"></div>
+        `;
+
+        win.onmousedown = () => { if(window.innerWidth > 768) win.style.zIndex = ++topZ; };
+        initDrag(win);
+        initResize(win);
+        workspace.appendChild(win);
+    }
+
+    async function handleSearch(id) {
+        const qInput = document.getElementById(`q-${id}`);
+        const query = qInput.value.trim();
+        const resultsDiv = document.getElementById(`r-${id}`);
+        
+        const yt = query.match(/(?:youtu\.be\/|youtube\.com(?:\/embed\/|\/v\/|\/watch\?v=))([\w\-]{11})/);
+        if (yt) { loadPlayer(id, 'youtube', yt[1]); return; }
+
+        if (YOUTUBE_API_KEY === 'YOUR_YOUTUBE_API_KEY') return alert("API Key Required");
+
+        resultsDiv.innerHTML = "Searching...";
+        try {
+            const resp = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=5&q=${encodeURIComponent(query)}&type=video&key=${YOUTUBE_API_KEY}`);
+            const data = await resp.json();
+            resultsDiv.innerHTML = "";
+            data.items.forEach(item => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'search-item';
+                itemDiv.onclick = () => {
+                    const vId = item.id.videoId;
+                    const title = item.snippet.title;
+                    loadPlayer(id, 'youtube', vId, title);
+                    if (currentRoom) {
+                        socket.emit('send-video', { roomId: currentRoom, vId: vId, title: title, winId: id });
+                    }
+                };
+                itemDiv.innerHTML = `<img src="${item.snippet.thumbnails.default.url}"> <div>${item.snippet.title}</div>`;
+                resultsDiv.appendChild(itemDiv);
+            });
+            historyCache[id] = document.getElementById(`search-ui-${id}`).innerHTML;
+        } catch (e) { resultsDiv.innerHTML = "Error."; }
+    }
+
+    function loadPlayer(id, platform, videoId, customTitle) {
+        if (!document.getElementById(`win-${id}`)) createWindow(id);
+        const content = document.getElementById(`c-${id}`);
+        const backBtn = document.getElementById(`back-${id}`);
+        const titleText = document.getElementById(`t-${id}`);
+
+        if (!historyCache[id]) historyCache[id] = content.innerHTML;
+
+        titleText.innerText = customTitle ? customTitle.substring(0, 15) + "..." : "Playing";
+        content.innerHTML = `<iframe src="https://www.youtube.com/embed/${videoId}?autoplay=1" allow="autoplay; fullscreen" allowfullscreen></iframe>`;
+        backBtn.style.display = "block";
+    }
+
+    function goBack(id) {
+        document.getElementById(`c-${id}`).innerHTML = `<div class="search-container" id="search-ui-${id}">${historyCache[id]}</div>`;
+        document.getElementById(`back-${id}`).style.display = "none";
+        document.getElementById(`t-${id}`).innerText = "Search";
+    }
+
+    socket.on('receive-video', (data) => {
+        loadPlayer(data.winId, 'youtube', data.vId, data.title);
+    });
+
+    // LAYOUT LOGIC
+    function autoLayout() {
+        const windows = document.querySelectorAll('.v-window');
+        if (window.innerWidth <= 768 || windows.length === 0) return;
+        const count = windows.length;
+        const cols = Math.ceil(Math.sqrt(count));
+        const rows = Math.ceil(count / cols);
+        applyManualGrid(cols, rows);
+    }
+
+    function applyManualGrid(cols, rows) {
+        const windows = document.querySelectorAll('.v-window');
+        if (window.innerWidth <= 768 || windows.length === 0) return;
+        const gap = 12;
+        const workW = workspace.clientWidth - gap;
+        const workH = workspace.clientHeight - gap;
+        const winW = (workW / cols) - gap;
+        const winH = (workH / rows) - gap;
+
+        windows.forEach((win, i) => {
+            const c = i % cols, r = Math.floor(i / cols);
+            win.style.width = winW + 'px'; win.style.height = winH + 'px';
+            win.style.left = (gap + (c * (winW + gap))) + 'px';
+            win.style.top = (gap + (r * (winH + gap))) + 'px';
+        });
+    }
+
+    // DRAG/RESIZE
+    function initDrag(win) {
+        const h = win.querySelector('.v-header');
+        h.onmousedown = (e) => {
+            if (window.innerWidth <= 768 || e.target.tagName === 'BUTTON') return;
+            win.classList.add('no-transition', 'overlay-active');
+            let ox = e.clientX - win.offsetLeft, oy = e.clientY - win.offsetTop;
+            const m = (me) => { win.style.left = (me.clientX - ox) + 'px'; win.style.top = (me.clientY - oy) + 'px'; };
+            const u = () => { win.classList.remove('no-transition', 'overlay-active'); window.removeEventListener('mousemove', m); };
+            window.addEventListener('mousemove', m); window.addEventListener('mouseup', u);
+        };
+    }
+
+    function initResize(win) {
+        const r = win.querySelector('.resizer.se');
+        r.onmousedown = (e) => {
+            if (window.innerWidth <= 768) return;
+            win.classList.add('no-transition', 'overlay-active');
+            const m = (me) => { win.style.width = (me.clientX - win.offsetLeft) + 'px'; win.style.height = (me.clientY - win.offsetTop) + 'px'; };
+            const u = () => { win.classList.remove('no-transition', 'overlay-active'); window.removeEventListener('mousemove', m); };
+            window.addEventListener('mousemove', m); window.addEventListener('mouseup', u);
+        };
+    }
+</script>
+</body>
+</html>
