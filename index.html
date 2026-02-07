@@ -10,23 +10,22 @@
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: var(--bg); color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
         header { height: var(--header-h); background: #000; display: flex; flex-direction: column; justify-content: center; padding: 0 15px; border-bottom: 1px solid #333; z-index: 1000; }
         .header-top { display: flex; justify-content: space-between; align-items: center; }
-        .nav-group { display: flex; gap: 8px; margin-top: 5px; overflow-x: auto; }
+        .nav-group { display: flex; gap: 8px; margin-top: 5px; overflow-x: auto; scrollbar-width: none; }
+        .nav-group::-webkit-scrollbar { display: none; }
         button { background: #222; color: white; border: 1px solid #444; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; }
         #addBtn { background: var(--accent); border: none; font-weight: bold; }
         input { background: #111; border: 1px solid #444; color: white; padding: 6px; border-radius: 4px; outline: none; }
         #workspace { width: 100vw; height: calc(100vh - var(--header-h)); position: relative; overflow: auto; }
 
-        .v-window { position: absolute; background: var(--panel); border: 1px solid #333; min-width: 250px; min-height: 180px; display: flex; flex-direction: column; z-index: 10; transition: all 0.4s ease; }
+        .v-window { position: absolute; background: var(--panel); border: 1px solid #333; min-width: 250px; min-height: 180px; display: flex; flex-direction: column; z-index: 10; transition: all 0.3s ease; }
         .v-header { background: #222; height: 32px; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; cursor: move; font-size: 11px; }
         .v-content { flex-grow: 1; background: #000; overflow: hidden; position: relative; }
         iframe { width: 100%; height: 100%; border: none; }
 
         .search-container { display: flex; flex-direction: column; height: 100%; padding: 10px; box-sizing: border-box; }
         .results-list { flex-grow: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-        .search-item { display: flex; gap: 10px; cursor: pointer; padding: 8px; background: #222; border-radius: 4px; align-items: center; transition: 0.2s; }
-        .search-item:hover { background: #333; }
-        .search-item img { width: 60px; height: 35px; border-radius: 2px; object-fit: cover; }
-        .search-item div { font-size: 11px; line-height: 1.2; flex: 1; }
+        .search-item { display: flex; gap: 10px; cursor: pointer; padding: 8px; background: #222; border-radius: 4px; align-items: center; }
+        .search-item img { width: 60px; height: 35px; border-radius: 2px; }
 
         .resizer.se { position: absolute; bottom: 0; right: 0; width: 15px; height: 15px; cursor: se-resize; }
         .overlay-active iframe { pointer-events: none; }
@@ -47,14 +46,14 @@
         <button onclick="autoLayout()">Auto Grid</button>
         <button onclick="applyManualGrid(4, 4)">4x4</button>
         <button onclick="applyManualGrid(8, 8)">8x8</button>
-        <span id="partyStatus" style="font-size: 10px; color: #555; margin-left: 10px; align-self: center;">Solo Mode</span>
+        <span id="partyStatus" style="font-size: 10px; color: #555; align-self: center; margin-left: 10px;">Offline</span>
     </div>
 </header>
 
 <div id="workspace"></div>
 
 <script>
-    // 1. SETTINGS - Update the RENDER_URL once you deploy server.js
+    // 1. UPDATE THIS TO YOUR RENDER URL
     const RENDER_URL = 'https://multi-view-server-1.onrender.com'; 
     const socket = io(RENDER_URL); 
 
@@ -73,16 +72,14 @@
         }
     }
 
-    document.getElementById('addBtn').onclick = () => {
-        createWindow(Date.now());
-    };
+    document.getElementById('addBtn').onclick = () => createWindow(Date.now());
 
     function createWindow(id) {
         if (document.getElementById(`win-${id}`)) return;
         const win = document.createElement('div');
         win.className = 'v-window';
         win.id = `win-${id}`;
-        win.style.left = '60px'; win.style.top = '60px';
+        win.style.left = '50px'; win.style.top = '50px';
         win.style.width = '450px'; win.style.height = '280px';
         win.style.zIndex = ++topZ;
 
@@ -97,7 +94,7 @@
             <div class="v-content" id="c-${id}">
                 <div class="search-container" id="search-ui-${id}">
                     <div style="display:flex; gap:5px;">
-                        <input type="text" id="q-${id}" style="flex:1" placeholder="Search YouTube...">
+                        <input type="text" id="q-${id}" style="flex:1" placeholder="Search...">
                         <button onclick="handleSearch('${id}')">Go</button>
                     </div>
                     <div id="r-${id}" class="results-list"></div>
@@ -109,33 +106,17 @@
         initDrag(win);
         initResize(win);
         workspace.appendChild(win);
+        return win;
     }
 
     async function handleSearch(id) {
         const query = document.getElementById(`q-${id}`).value.trim();
         const resultsDiv = document.getElementById(`r-${id}`);
         
-        // Direct Link Support
-        const ytMatch = query.match(/(?:youtu\.be\/|youtube\.com(?:\/embed\/|\/v\/|\/watch\?v=))([\w\-]{11})/);
-        if (ytMatch) { loadPlayer(id, ytMatch[1], "Video"); return; }
-
-        if (!YOUTUBE_API_KEY || YOUTUBE_API_KEY === 'YOUR_YOUTUBE_API_KEY') {
-            resultsDiv.innerHTML = "<div style='color:orange; font-size:10px;'>Error: Missing API Key in code.</div>";
-            return;
-        }
-
-        resultsDiv.innerHTML = "<div style='font-size:10px; color:#888;'>Searching...</div>";
-
         try {
             const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=5&q=${encodeURIComponent(query)}&type=video&key=${YOUTUBE_API_KEY}`;
             const resp = await fetch(url);
             const data = await resp.json();
-
-            if (data.error) {
-                resultsDiv.innerHTML = `<div style='color:red; font-size:10px;'>API Error: ${data.error.message}</div>`;
-                return;
-            }
-
             resultsDiv.innerHTML = "";
             data.items.forEach(item => {
                 const itemDiv = document.createElement('div');
@@ -148,25 +129,29 @@
                         socket.emit('send-video', { roomId: currentRoom, vId: videoId, title: videoTitle, winId: id });
                     }
                 };
-                itemDiv.innerHTML = `
-                    <img src="${item.snippet.thumbnails.default.url}">
-                    <div>${item.snippet.title.substring(0, 45)}...</div>
-                `;
+                itemDiv.innerHTML = `<img src="${item.snippet.thumbnails.default.url}"><div>${item.snippet.title}</div>`;
                 resultsDiv.appendChild(itemDiv);
             });
             historyCache[id] = document.getElementById(`search-ui-${id}`).innerHTML;
-        } catch (e) {
-            resultsDiv.innerHTML = "<div style='color:red;'>Failed to connect to YouTube.</div>";
-        }
+        } catch (e) { resultsDiv.innerHTML = "Search failed."; }
     }
 
     function loadPlayer(id, vId, title) {
-        if (!document.getElementById(`win-${id}`)) createWindow(id);
+        // CRITICAL FIX: Ensure the window exists before trying to load the video
+        if (!document.getElementById(`win-${id}`)) {
+            createWindow(id);
+        }
         const content = document.getElementById(`c-${id}`);
         document.getElementById(`t-${id}`).innerText = title.substring(0, 15) + "...";
         content.innerHTML = `<iframe src="https://www.youtube.com/embed/${vId}?autoplay=1" allow="autoplay; fullscreen" allowfullscreen></iframe>`;
         document.getElementById(`back-${id}`).style.display = "block";
     }
+
+    // THE SYNC ENGINE FIX
+    socket.on('receive-video', (data) => {
+        // If the window doesn't exist on User B's screen, this will create it first
+        loadPlayer(data.winId, data.vId, data.title);
+    });
 
     function goBack(id) {
         document.getElementById(`c-${id}`).innerHTML = `<div class="search-container" id="search-ui-${id}">${historyCache[id]}</div>`;
@@ -174,11 +159,7 @@
         document.getElementById(`t-${id}`).innerText = "Search";
     }
 
-    socket.on('receive-video', (data) => {
-        loadPlayer(data.winId, data.vId, data.title);
-    });
-
-    // LAYOUT & UTILS
+    // LAYOUT LOGIC
     function autoLayout() {
         const windows = document.querySelectorAll('.v-window');
         if (windows.length === 0) return;
@@ -205,7 +186,7 @@
             win.style.transition = "none";
             let ox = e.clientX - win.offsetLeft, oy = e.clientY - win.offsetTop;
             const m = (me) => { win.style.left = (me.clientX - ox) + 'px'; win.style.top = (me.clientY - oy) + 'px'; };
-            const u = () => { win.style.transition = "all 0.4s ease"; window.removeEventListener('mousemove', m); };
+            const u = () => { win.style.transition = "all 0.3s ease"; window.removeEventListener('mousemove', m); };
             window.addEventListener('mousemove', m); window.addEventListener('mouseup', u);
         };
     }
@@ -218,7 +199,7 @@
                 win.style.width = (me.clientX - win.offsetLeft) + 'px';
                 win.style.height = (me.clientY - win.offsetTop) + 'px';
             };
-            const u = () => { win.style.transition = "all 0.4s ease"; window.removeEventListener('mousemove', m); };
+            const u = () => { win.style.transition = "all 0.3s ease"; window.removeEventListener('mousemove', m); };
             window.addEventListener('mousemove', m); window.addEventListener('mouseup', u);
         };
     }
