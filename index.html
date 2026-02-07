@@ -197,7 +197,7 @@
         const yt = query.match(/(?:youtu\.be\/|youtube\.com(?:\/embed\/|\/v\/|\/watch\?v=))([\w\-]{11})/);
         if (yt) { loadPlayer(id, 'youtube', yt[1]); return; }
 
-        if (YOUTUBE_API_KEY === 'AIzaSyDfuubS8InUZRRZDezphqbhuuZeKGTh7Tk') return alert("AIzaSyDfuubS8InUZRRZDezphqbhuuZeKGTh7Tk");
+        if (YOUTUBE_API_KEY === 'YOUR_YOUTUBE_API_KEY') return alert("API Key Required");
 
         resultsDiv.innerHTML = "Searching...";
         try {
@@ -297,4 +297,5 @@
 </body>
 
 </html>
+
 
